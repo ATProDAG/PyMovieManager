@@ -1,5 +1,5 @@
 # PyMovieManager
-Simple Command Line based movie managament program using Python.
+Simple Command Line based movie managament program using Python and Mariadb
 
 ## Python Packages used -
 ###### IMDbPY
