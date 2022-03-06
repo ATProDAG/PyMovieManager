@@ -1,11 +1,11 @@
 import imdb
-import csv
 from os import path
 import os
 import webbrowser
 import urllib.request
 from PIL import Image
 from termcolor import colored
+import mariadb
 
 terminal_size = os.get_terminal_size()
 terminal_size = terminal_size[0]
@@ -15,81 +15,69 @@ final_directory = os.path.join(current_directory, r'thumbnails')
 if not os.path.exists(final_directory):
     os.makedirs(final_directory)
 
-first_row_universal = ["Title", "Year", "Kind"]
 
 ia = imdb.IMDb()
 
 os.system('cls' if os.name == 'nt' else 'clear')
 
+moviedb = mariadb.connect(user='connector-user',
+                          password='connector-password',
+                          host='localhost',
+                          database='connector')
+
+moviecursor = moviedb.cursor()
 
 class FileRelated:
     def __init__(self):
-        if not path.exists("Watched.csv"):
-            with open('Watched.csv', "w+") as file:
-                writer = csv.writer(file)
-                writer.writerow(first_row_universal)
-
-        if not path.exists("ToWatch.csv"):
-            with open("ToWatch.csv", "w+") as file:
-                writer = csv.writer(file)
-                writer.writerow(first_row_universal)
+        try:
+            moviecursor.execute("DESCRIBE WATCHED")
+        except mariadb.ProgrammingError:
+            moviecursor.execute("CREATE TABLE WATCHED(Title varchar(50), Year int(4), Kind varchar(10))")
+        try:
+            moviecursor.execute("DESCRIBE TOWATCH")
+        except mariadb.ProgrammingError:
+            moviecursor.execute("CREATE TABLE TOWATCH(Title varchar(50), Year int(4), Kind varchar(10))")
 
     def add(self, toadd, path_to_add):
         self.toadd = toadd
         self.path_to_add = path_to_add
-        with open(path_to_add, "a", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(toadd)
+        if path_to_add == "WATCHED":
+            insert_command = "INSERT INTO WATCHED VALUES(%s, %s, %s)"
+        else:
+            insert_command = "INSERT INTO TOWATCH VALUES(%s, %s, %s)"
+        moviecursor.execute(insert_command, toadd)
 
     def get_watched(self):
         temp_list = []
-        with open("Watched.csv", "r") as file:
-            reader = csv.reader(file)
-            next(reader)
-            for row in reader:
-                if row == []:
-                    pass
-                else:
-                    temp_list.append(row[0])
+        moviecursor.execute("SELECT Title FROM WATCHED")
+        for item in moviecursor:
+            temp_list.append(item)
         return temp_list
 
     def get_to_watch(self):
         temp_list = []
-        with open("ToWatch.csv", "r") as file:
-            reader = csv.reader(file)
-            next(reader)
-            for row in reader:
-                if row == []:
-                    pass
-                else:
-                    temp_list.append(row[0])
+        moviecursor.execute("SELECT Title FROM TOWATCH")
+        for item in moviecursor:
+            temp_list.append(item)
         return temp_list
 
     def print_all(self):
-        with open("Watched.csv", "r") as file:
-            print()
-            print(colored(" Titles you have watched ".center(
-                terminal_size, '+'), 'red', attrs=['bold']))
-            reader = csv.reader(file)
-            next(reader)
-            for row in reader:
-                if row == []:
-                    pass
-                else:
-                    print(
-                        f"{row[0]}({row[1]}) - {row[2].title()}".center(terminal_size))
-        with open("ToWatch.csv", "r") as file:
-            print()
-            print(colored(" Titles you want to watch ".center(
-                terminal_size, '+'), 'red', attrs=['bold']))
-            reader = csv.reader(file)
-            next(reader)
-            for row in reader:
-                if row == []:
-                    pass
-                else:
-                    print(
-                        f"{row[0]}({row[1]}) - {row[2].title()}".center(terminal_size))
+        rows = []
+        print()
+        print(colored(" Titles you have watched ".center(terminal_size, '+'), 'red', attrs=['bold']))
+        moviecursor.execute("SELECT * FROM WATCHED")
+        for item in moviecursor:
+            rows.append(item)
+        for row in rows:
+            print(f"{row[0]}({row[1]}) - {row[2].title()}".center(terminal_size))
+        print()
+        rows = []
+        print(colored(" Titles you want to watch ".center(terminal_size, '+'), 'red', attrs=['bold']))
+        moviecursor.execute("SELECT * FROM TOWATCH")
+        for item in moviecursor:
+            rows.append(item)
+        for row in rows:
+            print(f"{row[0]}({row[1]}) - {row[2].title()}".center(terminal_size))
 
 
 class Imdbsearch:
@@ -104,9 +92,13 @@ class Imdbsearch:
             f"\n{searched_result[0]['title']} ({searched_result[0]['year']})", attrs=['bold']))
         file_name = searched_result[0]['title'] + ".png"
         file_name = os.path.join(final_directory, file_name)
-        urllib.request.urlretrieve(target, file_name)
-        image = Image.open(file_name)
-        image.show()
+        if path.exists(file_name) == True:
+            image = Image.open(file_name)
+            image.show()
+        else:
+            urllib.request.urlretrieve(target, file_name)
+            image = Image.open(file_name)
+            image.show()
         correct = input(colored(
             "\nIs this thumbnail matching your media? (y/n):", 'white', attrs=['reverse']))
         correct = correct.upper()
@@ -166,10 +158,10 @@ while(y_n == "y"):
             path_temp = int(
                 input(colored("\nWhere to add? (1 for Watched, 2 for Watchlist): ", 'magenta')))
             if path_temp == 1:
-                files_op.add(toadd, "Watched.csv")
+                files_op.add(toadd, "WATCHED")
                 files_op.print_all()
             elif path_temp == 2:
-                files_op.add(toadd, "ToWatch.csv")
+                files_op.add(toadd, "TOWATCH")
                 files_op.print_all()
             else:
                 print(colored("\nWrong Input".center(terminal_size, '*'), 'red'))
@@ -180,6 +172,9 @@ while(y_n == "y"):
     elif choice == "q":
         y_n = "n"
         get_all_lists()
+        to_commit = input("Commit Changes to Database? ")
+        if to_commit.upper() in ['YES', 'Y']:
+            moviedb.commit()
     elif choice == 't':
         target_top = int(
             input("Enter 1 for Top 250 Movies, 2 for Top 250 Series: "))
